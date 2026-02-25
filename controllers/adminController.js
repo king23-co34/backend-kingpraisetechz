@@ -1,121 +1,130 @@
-const Project = require("../models/Project");
-const User = require("../models/User");
-const { Resend } = require("resend");
+const User = require('../models/User');
 
-const resend = new Resend(process.env.RESEND_API_KEY);
-
-// ===============================
-// 1. DASHBOARD OVERVIEW
-// ===============================
-exports.getOverview = async (req, res) => {
+exports.getUsers = async (req, res) => {
   try {
-    const totalClients = await User.countDocuments({ role: "client" });
-    const activeProjects = await Project.countDocuments({ status: "active" });
-    const pendingTasks = await Project.countDocuments({ status: { $ne: "completed" } });
-
-    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const monthlyRevenueAgg = await Project.aggregate([
-      { $match: { status: "completed", completedAt: { $gte: startOfMonth } } },
-      { $group: { _id: null, total: { $sum: "$budget" } } },
-    ]);
-    const monthlyRevenue = monthlyRevenueAgg[0]?.total || 0;
-
-    const revenueGrowth = [];
-    for (let i = 5; i >= 0; i--) {
-      const start = new Date(new Date().getFullYear(), new Date().getMonth() - i, 1);
-      const end = new Date(new Date().getFullYear(), new Date().getMonth() - i + 1, 0);
-      const agg = await Project.aggregate([
-        { $match: { status: "completed", completedAt: { $gte: start, $lte: end } } },
-        { $group: { _id: null, total: { $sum: "$budget" } } },
-      ]);
-      revenueGrowth.push({
-        month: start.toLocaleString("default", { month: "short" }),
-        revenue: agg[0]?.total || 0,
-      });
+    const { role, search } = req.query;
+    let query = {};
+    if (role) query.role = role;
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: 'i' } },
+        { lastName: { $regex: search, $options: 'i' } },
+        { email: { $regex: search, $options: 'i' } }
+      ];
     }
-
-    res.json({ totalClients, activeProjects, monthlyRevenue, pendingTasks, revenueGrowth });
+    
+    const users = await User.find(query)
+      .select('-password -twoFactorSecret -passwordResetToken -emailVerificationToken')
+      .sort({ createdAt: -1 });
+    
+    res.json({ users });
   } catch (err) {
-    console.error("Error in getOverview:", err);
-    res.status(500).json({ success: false, message: "Server error" });
+    res.status(500).json({ error: 'Failed to fetch users' });
   }
 };
 
-// ===============================
-// 2. UPLOAD RECENT PROJECT
-// ===============================
-exports.uploadProject = async (req, res) => {
+exports.grantAdminAccess = async (req, res) => {
   try {
-    const { title, description, image, link } = req.body;
-
-    if (!title || !description) {
-      return res.status(400).json({ success: false, message: "Title and description are required" });
+    const { userId, type, expiresAt } = req.body;
+    // type: 'permanent' | 'temporary'
+    
+    const user = await User.findOne({ _id: userId, role: 'team' });
+    if (!user) return res.status(404).json({ error: 'Team member not found' });
+    
+    const update = {
+      isTemporaryAdmin: true,
+      temporaryAdminGrantedBy: req.user._id
+    };
+    
+    if (type === 'permanent') {
+      update.role = 'admin';
+      update.isTemporaryAdmin = false;
+      update.temporaryAdminUntil = null;
+    } else {
+      if (!expiresAt) return res.status(400).json({ error: 'Expiry date required for temporary access' });
+      update.temporaryAdminUntil = new Date(expiresAt);
     }
-
-    const newProject = await Project.create({
-      title,
-      description,
-      image,
-      link,
-      status: "completed",
+    
+    const updatedUser = await User.findByIdAndUpdate(userId, update, { new: true })
+      .select('-password -twoFactorSecret');
+    
+    await User.findByIdAndUpdate(userId, {
+      $push: {
+        notifications: {
+          message: type === 'permanent'
+            ? 'You have been permanently promoted to Admin.'
+            : `You have been granted temporary Admin access until ${new Date(expiresAt).toLocaleDateString()}.`,
+          type: 'success'
+        }
+      }
     });
-
-    res.status(201).json({
-      success: true,
-      message: "Project live on homepage!",
-      project: newProject,
-    });
-  } catch (error) {
-    console.error("Upload Project Error:", error);
-    res.status(500).json({ success: false, message: "Server error while uploading project" });
+    
+    res.json({ user: updatedUser, message: `Admin access granted (${type})` });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to grant admin access' });
   }
 };
 
-// ===============================
-// 3. UPDATE CLIENT PROGRESS & NOTIFY
-// ===============================
-exports.updateProgress = async (req, res) => {
+exports.revokeAdminAccess = async (req, res) => {
   try {
-    const { clientId, progress } = req.body;
+    const { userId } = req.params;
+    
+    const user = await User.findByIdAndUpdate(userId, {
+      isTemporaryAdmin: false,
+      temporaryAdminUntil: null,
+      temporaryAdminGrantedBy: null
+    }, { new: true }).select('-password -twoFactorSecret');
+    
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    
+    await User.findByIdAndUpdate(userId, {
+      $push: {
+        notifications: {
+          message: 'Your admin access has been revoked.',
+          type: 'warning'
+        }
+      }
+    });
+    
+    res.json({ user, message: 'Admin access revoked' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to revoke admin access' });
+  }
+};
 
-    if (!clientId || progress === undefined) {
-      return res.status(400).json({ success: false, message: "Client ID and progress are required" });
-    }
+exports.updateUserStatus = async (req, res) => {
+  try {
+    const { isActive } = req.body;
+    const user = await User.findByIdAndUpdate(
+      req.params.userId,
+      { isActive },
+      { new: true }
+    ).select('-password -twoFactorSecret');
+    
+    if (!user) return res.status(404).json({ error: 'User not found' });
+    res.json({ user });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update user status' });
+  }
+};
 
-    if (progress < 0 || progress > 100) {
-      return res.status(400).json({ success: false, message: "Progress must be between 0 and 100" });
-    }
+exports.getNotifications = async (req, res) => {
+  try {
+    const user = await User.findById(req.user._id).select('notifications');
+    res.json({ notifications: user.notifications.reverse() });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch notifications' });
+  }
+};
 
-    const user = await User.findById(clientId);
-    if (!user) return res.status(404).json({ success: false, message: "Client not found" });
-
-    user.projectProgress = progress;
-    user.projectStatus = progress === 100 ? "completed" : "in-progress";
-
-    // Send email notification if project completed
-    if (progress === 100) {
-      await resend.emails.send({
-        from: "KingPraise Tech <onboarding@resend.dev>",
-        to: user.email,
-        subject: "🎉 Your Website Project is Completed!",
-        html: `
-          <div style="font-family: Arial, sans-serif;">
-            <h2>Hi ${user.name || "Client"},</h2>
-            <p>Great news! 🎉</p>
-            <p>Your website project has been successfully completed.</p>
-            <p>You can now review your project and request any final adjustments.</p>
-            <br/>
-            <p>Thank you for choosing KingPraise Tech.</p>
-            <strong>— KingPraise Tech Team</strong>
-          </div>
-        `,
-      });
-    }
-
-    await user.save();
-    res.status(200).json({ success: true, message: "Progress updated successfully", user });
-  } catch (error) {
-    console.error("Update Progress Error:", error);
-    res.status(500).json({ success: false, message: "Server error while updating progress" });
+exports.markNotificationRead = async (req, res) => {
+  try {
+    await User.updateOne(
+      { _id: req.user._id, 'notifications._id': req.params.notifId },
+      { $set: { 'notifications.$.read': true } }
+    );
+    res.json({ message: 'Notification marked as read' });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to update notification' });
   }
 };
