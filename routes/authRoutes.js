@@ -1,14 +1,16 @@
 const express = require("express");
 const router = express.Router();
+const { register, login, setupTwoFactor, enableTwoFactor } = require("../controllers/authController");
+const { verifyToken } = require("../middleware/authMiddleware");
 
-const auth = require("../controllers/authController");
-const protect = require("../middleware/authMiddleware");
+// POST /api/auth/register
+router.post("/register", register);
 
-// Public routes
-router.post("/register", auth.register);
-router.post("/login", auth.login);
+// POST /api/auth/login
+router.post("/login", login);
 
-// Protected route
-router.post("/enable-2fa", protect, auth.enable2FA);
+// 2FA routes (requires auth)
+router.post("/2fa/setup", verifyToken, setupTwoFactor);
+router.post("/2fa/enable", verifyToken, enableTwoFactor);
 
 module.exports = router;
