@@ -7,6 +7,7 @@ const mongoose = require("mongoose");
 const authRoutes = require("./routes/authRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const reviewRoutes = require("./routes/reviewRoutes");
+const adminRoutes = require("./routes/adminRoutes"); // ✅ Added admin routes
 
 const { seedAdmin } = require("./controllers/authController");
 
@@ -43,6 +44,7 @@ connectDB();
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use("/api/reviews", reviewRoutes);
+app.use("/api/admin", adminRoutes); // ✅ Added this line
 
 /* ========================================
    HEALTH CHECK ROUTE

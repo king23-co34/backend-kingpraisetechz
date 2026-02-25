@@ -5,7 +5,57 @@ const { Resend } = require("resend");
 const resend = new Resend(process.env.RESEND_API_KEY);
 
 // ===============================
-// 1. UPLOAD RECENT PROJECT
+// 1. DASHBOARD OVERVIEW
+// ===============================
+exports.getOverview = async (req, res) => {
+  try {
+    // Total clients
+    const totalClients = await User.countDocuments({ role: "client" });
+
+    // Active projects
+    const activeProjects = await Project.countDocuments({ status: "active" });
+
+    // Monthly revenue (sum of completed project payments in current month)
+    const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
+    const monthlyRevenueAgg = await Project.aggregate([
+      { $match: { status: "completed", completedAt: { $gte: startOfMonth } } },
+      { $group: { _id: null, total: { $sum: "$budget" } } },
+    ]);
+    const monthlyRevenue = monthlyRevenueAgg[0]?.total || 0;
+
+    // Pending tasks (projects not completed)
+    const pendingTasks = await Project.countDocuments({ status: { $ne: "completed" } });
+
+    // Revenue growth (last 6 months)
+    const revenueGrowth = [];
+    for (let i = 5; i >= 0; i--) {
+      const start = new Date(new Date().getFullYear(), new Date().getMonth() - i, 1);
+      const end = new Date(new Date().getFullYear(), new Date().getMonth() - i + 1, 0);
+      const agg = await Project.aggregate([
+        { $match: { status: "completed", completedAt: { $gte: start, $lte: end } } },
+        { $group: { _id: null, total: { $sum: "$budget" } } },
+      ]);
+      revenueGrowth.push({
+        month: start.toLocaleString("default", { month: "short" }),
+        revenue: agg[0]?.total || 0,
+      });
+    }
+
+    res.json({
+      totalClients,
+      activeProjects,
+      monthlyRevenue,
+      pendingTasks,
+      revenueGrowth,
+    });
+  } catch (err) {
+    console.error("Error in getOverview:", err);
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+
+// ===============================
+// 2. UPLOAD RECENT PROJECT
 // ===============================
 exports.uploadProject = async (req, res) => {
   try {
@@ -41,7 +91,7 @@ exports.uploadProject = async (req, res) => {
 };
 
 // ===============================
-// 2. UPDATE CLIENT PROGRESS & NOTIFY
+// 3. UPDATE CLIENT PROGRESS & NOTIFY
 // ===============================
 exports.updateProgress = async (req, res) => {
   try {
@@ -78,7 +128,7 @@ exports.updateProgress = async (req, res) => {
 
       // Send Email using Resend
       await resend.emails.send({
-        from: "KingPraise Tech <onboarding@resend.dev>", 
+        from: "KingPraise Tech <onboarding@resend.dev>",
         to: user.email,
         subject: "🎉 Your Website Project is Completed!",
         html: `
