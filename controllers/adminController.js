@@ -9,13 +9,9 @@ const resend = new Resend(process.env.RESEND_API_KEY);
 // ===============================
 exports.getOverview = async (req, res) => {
   try {
-    // Total clients
     const totalClients = await User.countDocuments({ role: "client" });
-
-    // Active projects
     const activeProjects = await Project.countDocuments({ status: "active" });
 
-    // Monthly revenue (sum of completed project payments in current month)
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const monthlyRevenueAgg = await Project.aggregate([
       { $match: { status: "completed", completedAt: { $gte: startOfMonth } } },
@@ -23,10 +19,8 @@ exports.getOverview = async (req, res) => {
     ]);
     const monthlyRevenue = monthlyRevenueAgg[0]?.total || 0;
 
-    // Pending tasks (projects not completed)
     const pendingTasks = await Project.countDocuments({ status: { $ne: "completed" } });
 
-    // Revenue growth (last 6 months)
     const revenueGrowth = [];
     for (let i = 5; i >= 0; i--) {
       const start = new Date(new Date().getFullYear(), new Date().getMonth() - i, 1);
@@ -41,13 +35,7 @@ exports.getOverview = async (req, res) => {
       });
     }
 
-    res.json({
-      totalClients,
-      activeProjects,
-      monthlyRevenue,
-      pendingTasks,
-      revenueGrowth,
-    });
+    res.json({ totalClients, activeProjects, monthlyRevenue, pendingTasks, revenueGrowth });
   } catch (err) {
     console.error("Error in getOverview:", err);
     res.status(500).json({ success: false, message: "Server error" });
@@ -112,21 +100,13 @@ exports.updateProgress = async (req, res) => {
     }
 
     const user = await User.findById(clientId);
-
-    if (!user) {
-      return res.status(404).json({
-        success: false,
-        message: "Client not found",
-      });
-    }
+    if (!user) return res.status(404).json({ success: false, message: "Client not found" });
 
     user.projectProgress = progress;
+    user.projectStatus = progress === 100 ? "completed" : "in-progress";
 
-    // If project completed
+    // Send notification if project completed
     if (progress === 100) {
-      user.projectStatus = "completed";
-
-      // Send Email using Resend
       await resend.emails.send({
         from: "KingPraise Tech <onboarding@resend.dev>",
         to: user.email,
@@ -143,22 +123,12 @@ exports.updateProgress = async (req, res) => {
           </div>
         `,
       });
-    } else {
-      user.projectStatus = "in-progress";
     }
 
     await user.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Progress updated successfully",
-      user,
-    });
+    res.status(200).json({ success: true, message: "Progress updated successfully", user });
   } catch (error) {
     console.error("Update Progress Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error while updating progress",
-    });
+    res.status(500).json({ success: false, message: "Server error while updating progress" });
   }
 };
