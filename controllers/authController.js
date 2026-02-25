@@ -4,74 +4,111 @@ const jwt = require("jsonwebtoken");
 const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
 
-// Create Admin if not exists
+// ===============================
+// 1. SEED ADMIN USER
+// ===============================
 exports.seedAdmin = async () => {
-  const adminExists = await User.findOne({ role: "admin" });
-  if (adminExists) return;
-
-  const hashed = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
-
-  await User.create({
-    name: "Admin",
-    email: process.env.ADMIN_EMAIL,
-    password: hashed,
-    role: "admin",
-  });
-
-  console.log("Admin seeded");
+  try {
+    const existingAdmin = await User.findOne({ role: "admin" });
+    if (!existingAdmin) {
+      const hashedPassword = await bcrypt.hash(process.env.ADMIN_PASSWORD || "Password123", 10);
+      await User.create({
+        name: "Admin",
+        email: process.env.ADMIN_EMAIL || "chibuksai@gmail.com",
+        password: hashedPassword,
+        role: "admin",
+      });
+      console.log("✅ Admin seeded");
+    }
+  } catch (err) {
+    console.error("❌ Error seeding admin:", err);
+  }
 };
 
-// CLIENT REGISTER
+// ===============================
+// 2. REGISTER CLIENT
+// ===============================
 exports.register = async (req, res) => {
-  const { name, email, password } = req.body;
+  try {
+    const { name, email, password } = req.body;
 
-  const hashed = await bcrypt.hash(password, 10);
+    // Prevent registration as admin
+    if (email === (process.env.ADMIN_EMAIL || "chibuksai@gmail.com")) {
+      return res.status(403).json({ message: "Cannot register as admin" });
+    }
 
-  const user = await User.create({
-    name,
-    email,
-    password: hashed,
-  });
+    const existingUser = await User.findOne({ email });
+    if (existingUser) return res.status(400).json({ message: "User already exists" });
 
-  res.json({ message: "Client registered" });
-};
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-// LOGIN
-exports.login = async (req, res) => {
-  const { email, password, token } = req.body;
-
-  const user = await User.findOne({ email });
-  if (!user) return res.status(400).json({ message: "Invalid credentials" });
-
-  const match = await bcrypt.compare(password, user.password);
-  if (!match) return res.status(400).json({ message: "Invalid credentials" });
-
-  if (user.twoFactorEnabled) {
-    const verified = speakeasy.totp.verify({
-      secret: user.twoFactorSecret,
-      encoding: "base32",
-      token,
+    const user = await User.create({
+      name,
+      email,
+      password: hashedPassword,
+      role: "client",
     });
 
-    if (!verified)
-      return res.status(400).json({ message: "Invalid 2FA code" });
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+    res.status(201).json({ token, user: { id: user._id, name, email, role: user.role } });
+  } catch (err) {
+    console.error("Register error:", err);
+    res.status(500).json({ message: "Server error" });
   }
-
-  const jwtToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
-
-  res.json({ token: jwtToken, role: user.role });
 };
 
-// ENABLE 2FA
+// ===============================
+// 3. LOGIN (WITH OPTIONAL 2FA)
+// ===============================
+exports.login = async (req, res) => {
+  try {
+    const { email, password, token: twoFactorToken } = req.body;
+
+    const user = await User.findOne({ email });
+    if (!user) return res.status(400).json({ message: "Invalid credentials" });
+
+    const isMatch = await bcrypt.compare(password, user.password);
+    if (!isMatch) return res.status(400).json({ message: "Invalid credentials" });
+
+    // If 2FA enabled, verify token
+    if (user.twoFactorEnabled) {
+      const verified = speakeasy.totp.verify({
+        secret: user.twoFactorSecret,
+        encoding: "base32",
+        token: twoFactorToken,
+      });
+
+      if (!verified) return res.status(400).json({ message: "Invalid 2FA code" });
+    }
+
+    const jwtToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: "7d" });
+
+    res.json({ token: jwtToken, user: { id: user._id, name: user.name, email: user.email, role: user.role } });
+  } catch (err) {
+    console.error("Login error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
+};
+
+// ===============================
+// 4. ENABLE 2FA
+// ===============================
 exports.enable2FA = async (req, res) => {
-  const secret = speakeasy.generateSecret();
+  try {
+    const user = await User.findById(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-  const user = await User.findById(req.user.id);
-  user.twoFactorSecret = secret.base32;
-  user.twoFactorEnabled = true;
-  await user.save();
+    const secret = speakeasy.generateSecret();
+    user.twoFactorSecret = secret.base32;
+    user.twoFactorEnabled = true;
+    await user.save();
 
-  const qr = await QRCode.toDataURL(secret.otpauth_url);
+    const qr = await QRCode.toDataURL(secret.otpauth_url);
 
-  res.json({ qr });
+    res.json({ qr });
+  } catch (err) {
+    console.error("Enable 2FA error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
 };
