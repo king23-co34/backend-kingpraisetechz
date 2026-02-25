@@ -1,0 +1,35 @@
+{
+  "name": "kingpraise-techz-backend",
+  "version": "1.0.0",
+  "description": "KingPraise Techz Backend API",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js"
+  },
+  "keywords": [],
+  "author": "KingPraise Techz",
+  "license": "ISC",
+  "type": "commonjs",
+  "engines": {
+    "node": "20.x"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "express-rate-limit": "^8.2.1",
+    "helmet": "^8.1.0",
+    "hpp": "^0.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "mongo-sanitizer": "^1.0.4",
+    "mongoose": "^9.2.1",
+    "morgan": "^1.10.1",
+    "socket.io": "^4.8.3",
+    "xss": "^1.0.15"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
+  }
+}
