@@ -1,142 +1,114 @@
-const User = require("../models/User");
 const Project = require("../models/Project");
-const Task = require("../models/Task");
-const { sendSuccess, sendError } = require("../utils/response");
+const User = require("../models/User");
+const { Resend } = require("resend");
 
-// @desc  Get all users
-// @route GET /api/admin/users
-exports.getAllUsers = async (req, res, next) => {
+const resend = new Resend(process.env.RESEND_API_KEY);
+
+// ===============================
+// 1. UPLOAD RECENT PROJECT
+// ===============================
+exports.uploadProject = async (req, res) => {
   try {
-    const { role, page = 1, limit = 20 } = req.query;
-    const filter = role ? { role } : {};
-    const skip = (page - 1) * limit;
+    const { title, description, image, link } = req.body;
 
-    const [users, total] = await Promise.all([
-      User.find(filter).skip(skip).limit(Number(limit)).sort("-createdAt"),
-      User.countDocuments(filter),
-    ]);
+    if (!title || !description) {
+      return res.status(400).json({
+        success: false,
+        message: "Title and description are required",
+      });
+    }
 
-    sendSuccess(res, { users, total, page: Number(page), pages: Math.ceil(total / limit) });
-  } catch (err) {
-    next(err);
+    const newProject = await Project.create({
+      title,
+      description,
+      image,
+      link,
+      status: "completed",
+    });
+
+    res.status(201).json({
+      success: true,
+      message: "Project live on homepage!",
+      project: newProject,
+    });
+  } catch (error) {
+    console.error("Upload Project Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while uploading project",
+    });
   }
 };
 
-// @desc  Create user (admin)
-// @route POST /api/admin/users
-exports.createUser = async (req, res, next) => {
+// ===============================
+// 2. UPDATE CLIENT PROGRESS & NOTIFY
+// ===============================
+exports.updateProgress = async (req, res) => {
   try {
-    const { name, email, password, role, phone } = req.body;
-    if (!name || !email || !password) return sendError(res, "Name, email and password are required", 400);
+    const { clientId, progress } = req.body;
 
-    const exists = await User.findOne({ email });
-    if (exists) return sendError(res, "Email already in use", 409);
+    if (!clientId || progress === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: "Client ID and progress are required",
+      });
+    }
 
-    const user = await User.create({ name, email, password, role, phone });
-    sendSuccess(res, { user }, "User created", 201);
-  } catch (err) {
-    next(err);
-  }
-};
+    if (progress < 0 || progress > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Progress must be between 0 and 100",
+      });
+    }
 
-// @desc  Update user
-// @route PUT /api/admin/users/:id
-exports.updateUser = async (req, res, next) => {
-  try {
-    const { name, email, role, phone, isActive } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.params.id,
-      { name, email, role, phone, isActive },
-      { new: true, runValidators: true }
-    );
-    if (!user) return sendError(res, "User not found", 404);
-    sendSuccess(res, { user }, "User updated");
-  } catch (err) {
-    next(err);
-  }
-};
+    const user = await User.findById(clientId);
 
-// @desc  Delete user
-// @route DELETE /api/admin/users/:id
-exports.deleteUser = async (req, res, next) => {
-  try {
-    const user = await User.findByIdAndDelete(req.params.id);
-    if (!user) return sendError(res, "User not found", 404);
-    sendSuccess(res, {}, "User deleted");
-  } catch (err) {
-    next(err);
-  }
-};
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: "Client not found",
+      });
+    }
 
-// @desc  Get all projects
-// @route GET /api/admin/projects
-exports.getAllProjects = async (req, res, next) => {
-  try {
-    const { status, page = 1, limit = 20 } = req.query;
-    const filter = status ? { status } : {};
-    const skip = (page - 1) * limit;
+    user.projectProgress = progress;
 
-    const [projects, total] = await Promise.all([
-      Project.find(filter)
-        .populate("client", "name email")
-        .populate("assignedTeam", "name email")
-        .skip(skip)
-        .limit(Number(limit))
-        .sort("-createdAt"),
-      Project.countDocuments(filter),
-    ]);
+    // If project completed
+    if (progress === 100) {
+      user.projectStatus = "completed";
 
-    sendSuccess(res, { projects, total, page: Number(page), pages: Math.ceil(total / limit) });
-  } catch (err) {
-    next(err);
-  }
-};
+      // Send Email using Resend
+      await resend.emails.send({
+        from: "KingPraise Tech <onboarding@resend.dev>", 
+        to: user.email,
+        subject: "🎉 Your Website Project is Completed!",
+        html: `
+          <div style="font-family: Arial, sans-serif;">
+            <h2>Hi ${user.name || "Client"},</h2>
+            <p>Great news! 🎉</p>
+            <p>Your website project has been successfully completed.</p>
+            <p>You can now review your project and request any final adjustments.</p>
+            <br/>
+            <p>Thank you for choosing KingPraise Tech.</p>
+            <strong>— KingPraise Tech Team</strong>
+          </div>
+        `,
+      });
+    } else {
+      user.projectStatus = "in-progress";
+    }
 
-// @desc  Create project
-// @route POST /api/admin/projects
-exports.createProject = async (req, res, next) => {
-  try {
-    const project = await Project.create(req.body);
-    await project.populate("client", "name email");
+    await user.save();
 
-    const io = req.app.get("io");
-    io.emit("project:created", project);
-
-    sendSuccess(res, { project }, "Project created", 201);
-  } catch (err) {
-    next(err);
-  }
-};
-
-// @desc  Update project
-// @route PUT /api/admin/projects/:id
-exports.updateProject = async (req, res, next) => {
-  try {
-    const project = await Project.findByIdAndUpdate(req.params.id, req.body, {
-      new: true,
-      runValidators: true,
-    }).populate("client assignedTeam", "name email");
-
-    if (!project) return sendError(res, "Project not found", 404);
-
-    const io = req.app.get("io");
-    io.emit("project:updated", project);
-
-    sendSuccess(res, { project }, "Project updated");
-  } catch (err) {
-    next(err);
-  }
-};
-
-// @desc  Delete project
-// @route DELETE /api/admin/projects/:id
-exports.deleteProject = async (req, res, next) => {
-  try {
-    const project = await Project.findByIdAndDelete(req.params.id);
-    if (!project) return sendError(res, "Project not found", 404);
-    await Task.deleteMany({ project: req.params.id });
-    sendSuccess(res, {}, "Project and tasks deleted");
-  } catch (err) {
-    next(err);
+    res.status(200).json({
+      success: true,
+      message: "Progress updated successfully",
+      user,
+    });
+  } catch (error) {
+    console.error("Update Progress Error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error while updating progress",
+    });
   }
 };

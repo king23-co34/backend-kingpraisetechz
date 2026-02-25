@@ -26,7 +26,10 @@
     "mongo-sanitizer": "^1.0.4",
     "mongoose": "^9.2.1",
     "morgan": "^1.10.1",
+    "qrcode": "^1.5.4",
+    "resend": "^6.9.2",
     "socket.io": "^4.8.3",
+    "speakeasy": "^2.0.0",
     "xss": "^1.0.15"
   },
   "devDependencies": {

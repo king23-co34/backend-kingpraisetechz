@@ -1,13 +1,9 @@
-const express = require("express");
-const router = express.Router();
-const { register, login, getMe, updateProfile, changePassword } = require("../controllers/authController");
-const { protect } = require("../middleware/authMiddleware");
-const { authLimiter } = require("../middleware/rateLimiter");
+const router = require("express").Router();
+const auth = require("../controllers/authController");
+const protect = require("../middleware/authMiddleware");
 
-router.post("/register", register);
-router.post("/login", authLimiter, login);
-router.get("/me", protect, getMe);
-router.put("/profile", protect, updateProfile);
-router.put("/change-password", protect, changePassword);
+router.post("/register", auth.register);
+router.post("/login", auth.login);
+router.post("/enable-2fa", protect, auth.enable2FA);
 
 module.exports = router;

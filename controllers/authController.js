@@ -1,104 +1,77 @@
 const User = require("../models/User");
-const { generateToken } = require("../utils/jwt");
-const { sendSuccess, sendError } = require("../utils/response");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const speakeasy = require("speakeasy");
+const QRCode = require("qrcode");
 
-// @desc  Register a new user
-// @route POST /api/auth/register
-exports.register = async (req, res, next) => {
-  try {
-    const { name, email, password, role, phone } = req.body;
+// Create Admin if not exists
+exports.seedAdmin = async () => {
+  const adminExists = await User.findOne({ role: "admin" });
+  if (adminExists) return;
 
-    if (!name || !email || !password) {
-      return sendError(res, "Name, email, and password are required", 400);
-    }
+  const hashed = await bcrypt.hash(process.env.ADMIN_PASSWORD, 10);
 
-    const exists = await User.findOne({ email });
-    if (exists) return sendError(res, "Email already registered", 409);
+  await User.create({
+    name: "Admin",
+    email: process.env.ADMIN_EMAIL,
+    password: hashed,
+    role: "admin",
+  });
 
-    // Only allow ADMIN to create ADMIN accounts
-    const assignedRole = role && req.user?.role === "ADMIN" ? role : "CLIENT";
-
-    const user = await User.create({ name, email, password, role: assignedRole, phone });
-    const token = generateToken(user._id, user.role);
-
-    sendSuccess(res, { token, user }, "Account created successfully", 201);
-  } catch (err) {
-    next(err);
-  }
+  console.log("Admin seeded");
 };
 
-// @desc  Login
-// @route POST /api/auth/login
-exports.login = async (req, res, next) => {
-  try {
-    const { email, password } = req.body;
+// CLIENT REGISTER
+exports.register = async (req, res) => {
+  const { name, email, password } = req.body;
 
-    if (!email || !password) {
-      return sendError(res, "Email and password are required", 400);
-    }
+  const hashed = await bcrypt.hash(password, 10);
 
-    const user = await User.findOne({ email }).select("+password");
-    if (!user || !(await user.matchPassword(password))) {
-      return sendError(res, "Invalid email or password", 401);
-    }
+  const user = await User.create({
+    name,
+    email,
+    password: hashed,
+  });
 
-    if (!user.isActive) {
-      return sendError(res, "Account is deactivated. Contact support.", 403);
-    }
-
-    user.lastLogin = new Date();
-    await user.save({ validateBeforeSave: false });
-
-    const token = generateToken(user._id, user.role);
-    sendSuccess(res, { token, user }, "Login successful");
-  } catch (err) {
-    next(err);
-  }
+  res.json({ message: "Client registered" });
 };
 
-// @desc  Get current user
-// @route GET /api/auth/me
-exports.getMe = async (req, res) => {
-  sendSuccess(res, { user: req.user });
+// LOGIN
+exports.login = async (req, res) => {
+  const { email, password, token } = req.body;
+
+  const user = await User.findOne({ email });
+  if (!user) return res.status(400).json({ message: "Invalid credentials" });
+
+  const match = await bcrypt.compare(password, user.password);
+  if (!match) return res.status(400).json({ message: "Invalid credentials" });
+
+  if (user.twoFactorEnabled) {
+    const verified = speakeasy.totp.verify({
+      secret: user.twoFactorSecret,
+      encoding: "base32",
+      token,
+    });
+
+    if (!verified)
+      return res.status(400).json({ message: "Invalid 2FA code" });
+  }
+
+  const jwtToken = jwt.sign({ id: user._id }, process.env.JWT_SECRET);
+
+  res.json({ token: jwtToken, role: user.role });
 };
 
-// @desc  Update profile
-// @route PUT /api/auth/profile
-exports.updateProfile = async (req, res, next) => {
-  try {
-    const { name, phone, avatar } = req.body;
-    const user = await User.findByIdAndUpdate(
-      req.user._id,
-      { name, phone, avatar },
-      { new: true, runValidators: true }
-    );
-    sendSuccess(res, { user }, "Profile updated");
-  } catch (err) {
-    next(err);
-  }
-};
+// ENABLE 2FA
+exports.enable2FA = async (req, res) => {
+  const secret = speakeasy.generateSecret();
 
-// @desc  Change password
-// @route PUT /api/auth/change-password
-exports.changePassword = async (req, res, next) => {
-  try {
-    const { currentPassword, newPassword } = req.body;
+  const user = await User.findById(req.user.id);
+  user.twoFactorSecret = secret.base32;
+  user.twoFactorEnabled = true;
+  await user.save();
 
-    if (!currentPassword || !newPassword) {
-      return sendError(res, "Both current and new passwords are required", 400);
-    }
+  const qr = await QRCode.toDataURL(secret.otpauth_url);
 
-    const user = await User.findById(req.user._id).select("+password");
-    if (!(await user.matchPassword(currentPassword))) {
-      return sendError(res, "Current password is incorrect", 401);
-    }
-
-    user.password = newPassword;
-    await user.save();
-
-    const token = generateToken(user._id, user.role);
-    sendSuccess(res, { token }, "Password changed successfully");
-  } catch (err) {
-    next(err);
-  }
+  res.json({ qr });
 };
