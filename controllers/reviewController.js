@@ -1,16 +1,22 @@
+// reviewController.js
 const Review = require("../models/Review");
 
-exports.addReview = async (req, res) => {
-  const review = await Review.create({
-    user: req.user.id,
-    message: req.body.message,
-    rating: req.body.rating,
-  });
-
-  res.json(review);
+exports.createReview = async (req, res) => {
+  try {
+    const review = await Review.create(req.body);
+    res.status(201).json(review);
+  } catch (err) {
+    console.error("createReview error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
 };
 
 exports.getReviews = async (req, res) => {
-  const reviews = await Review.find().populate("user", "name");
-  res.json(reviews);
+  try {
+    const reviews = await Review.find();
+    res.json(reviews);
+  } catch (err) {
+    console.error("getReviews error:", err);
+    res.status(500).json({ message: "Server error" });
+  }
 };

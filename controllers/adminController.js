@@ -11,6 +11,7 @@ exports.getOverview = async (req, res) => {
   try {
     const totalClients = await User.countDocuments({ role: "client" });
     const activeProjects = await Project.countDocuments({ status: "active" });
+    const pendingTasks = await Project.countDocuments({ status: { $ne: "completed" } });
 
     const startOfMonth = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
     const monthlyRevenueAgg = await Project.aggregate([
@@ -18,8 +19,6 @@ exports.getOverview = async (req, res) => {
       { $group: { _id: null, total: { $sum: "$budget" } } },
     ]);
     const monthlyRevenue = monthlyRevenueAgg[0]?.total || 0;
-
-    const pendingTasks = await Project.countDocuments({ status: { $ne: "completed" } });
 
     const revenueGrowth = [];
     for (let i = 5; i >= 0; i--) {
@@ -50,10 +49,7 @@ exports.uploadProject = async (req, res) => {
     const { title, description, image, link } = req.body;
 
     if (!title || !description) {
-      return res.status(400).json({
-        success: false,
-        message: "Title and description are required",
-      });
+      return res.status(400).json({ success: false, message: "Title and description are required" });
     }
 
     const newProject = await Project.create({
@@ -71,10 +67,7 @@ exports.uploadProject = async (req, res) => {
     });
   } catch (error) {
     console.error("Upload Project Error:", error);
-    res.status(500).json({
-      success: false,
-      message: "Server error while uploading project",
-    });
+    res.status(500).json({ success: false, message: "Server error while uploading project" });
   }
 };
 
@@ -86,17 +79,11 @@ exports.updateProgress = async (req, res) => {
     const { clientId, progress } = req.body;
 
     if (!clientId || progress === undefined) {
-      return res.status(400).json({
-        success: false,
-        message: "Client ID and progress are required",
-      });
+      return res.status(400).json({ success: false, message: "Client ID and progress are required" });
     }
 
     if (progress < 0 || progress > 100) {
-      return res.status(400).json({
-        success: false,
-        message: "Progress must be between 0 and 100",
-      });
+      return res.status(400).json({ success: false, message: "Progress must be between 0 and 100" });
     }
 
     const user = await User.findById(clientId);
@@ -105,7 +92,7 @@ exports.updateProgress = async (req, res) => {
     user.projectProgress = progress;
     user.projectStatus = progress === 100 ? "completed" : "in-progress";
 
-    // Send notification if project completed
+    // Send email notification if project completed
     if (progress === 100) {
       await resend.emails.send({
         from: "KingPraise Tech <onboarding@resend.dev>",

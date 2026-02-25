@@ -12,25 +12,22 @@ const { seedAdmin } = require("./controllers/authController");
 
 const app = express();
 
-/* ===== GLOBAL MIDDLEWARE ===== */
+/* ===== MIDDLEWARE ===== */
 app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-/* ===== DATABASE CONNECTION ===== */
+/* ===== DATABASE ===== */
 const connectDB = async () => {
   try {
     await mongoose.connect(process.env.MONGO_URI);
     console.log("✅ MongoDB Connected");
-
-    // Seed Admin After DB Connects
     await seedAdmin();
-  } catch (error) {
-    console.error("❌ MongoDB Connection Error:", error.message);
+  } catch (err) {
+    console.error("❌ MongoDB Connection Error:", err.message);
     process.exit(1);
   }
 };
-
 connectDB();
 
 /* ===== ROUTES ===== */
@@ -45,11 +42,9 @@ app.get("/", (req, res) => {
 });
 
 /* ===== 404 ===== */
-app.use((req, res) => {
-  res.status(404).json({ success: false, message: "Route not found" });
-});
+app.use((req, res) => res.status(404).json({ success: false, message: "Route not found" }));
 
-/* ===== GLOBAL ERROR HANDLER ===== */
+/* ===== GLOBAL ERROR ===== */
 app.use((err, req, res, next) => {
   console.error("🔥 Server Error:", err.stack);
   res.status(500).json({ success: false, message: "Something went wrong" });

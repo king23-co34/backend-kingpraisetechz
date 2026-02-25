@@ -1,9 +1,8 @@
-const router = require("express").Router();
-const protect = require("../middleware/authMiddleware");
-const role = require("../middleware/roleMiddleware");
-const project = require("../controllers/projectController");
+const express = require("express");
+const router = express.Router();
+const { createProject, getProjects } = require("../controllers/projectController");
 
-router.post("/upload", protect, role("admin"), project.uploadProject);
-router.put("/progress", protect, role("admin"), project.updateProgress);
+router.post("/", createProject);
+router.get("/", getProjects);
 
 module.exports = router;
