@@ -2,10 +2,10 @@
 const express = require("express");
 const router = express.Router();
 
-// 🔹 Import middleware functions correctly
+// 🔹 Import middleware correctly
 const { authenticate, requireAdmin } = require("../middleware/authMiddleware");
 
-// 🔹 Import controller functions correctly (named exports)
+// 🔹 Import controller functions correctly
 const {
   getAdminDashboard,
   getAllUsers,
@@ -14,22 +14,22 @@ const {
 } = require("../controllers/adminController");
 
 // ===========================
-// Admin Dashboard Route
+// Admin dashboard
 // ===========================
 router.get("/dashboard", authenticate, requireAdmin, getAdminDashboard);
 
 // ===========================
-// Get all users (admin only)
+// List all users
 // ===========================
 router.get("/users", authenticate, requireAdmin, getAllUsers);
 
 // ===========================
-// Create a new admin user
+// Create new admin user
 // ===========================
 router.post("/users", authenticate, requireAdmin, createAdminUser);
 
 // ===========================
-// Delete a user by ID
+// Delete user by ID
 // ===========================
 router.delete("/users/:id", authenticate, requireAdmin, deleteUser);
 
