@@ -1,6 +1,6 @@
-const User = require('../models/User');
+const User = require('../models/users');
 const { generateToken } = require('../utils/jwt');
-const { sendEmail } = require('../services/emailService');
+const { sendEmail } = require('../services/email');
 
 exports.signup = async (req, res) => {
   try {

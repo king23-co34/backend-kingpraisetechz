@@ -1,6 +1,6 @@
-const Task = require("../models/Task");
-const User = require("../models/User");
-const Project = require("../models/Project");
+const Task = require("../models/tasks");
+const User = require("../models/users");
+const Project = require("../models/projects");
 const { sendSuccess } = require("../utils/response");
 
 // @desc  Dashboard stats

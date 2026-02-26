@@ -1,5 +1,5 @@
-const Project = require("../models/Project");
-const Task = require("../models/Task");
+const Project = require("../models/projects");
+const Task = require("../models/tasks");
 const { sendSuccess, sendError } = require("../utils/response");
 
 // @desc  Get my projects

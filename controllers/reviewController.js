@@ -1,5 +1,5 @@
-const { Review } = require('../models/Milestone');
-const Project = require('../models/Project');
+const { Review } = require('../models/milestone');
+const Project = require('../models/projects');
 
 exports.submitReview = async (req, res) => {
   try {
