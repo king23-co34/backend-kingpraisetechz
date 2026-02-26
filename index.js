@@ -1,47 +1,48 @@
-// src/index.js
-require("dotenv").config(); // Load .env locally
+// index.js
+require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const mongoose = require("mongoose");
-const morgan = require("morgan"); // Optional: logging
 const cookieParser = require("cookie-parser");
 
-// ===== Import routes =====
-const authRoutes = require("./routes/auth");
-const projectRoutes = require("./routes/projects");
-const reviewRoutes = require("./routes/reviews");
+// Import routes
+const authRoutes = require("./routes/authRoutes");
+const projectRoutes = require("./routes/projectRoutes");
 const taskRoutes = require("./routes/tasks");
-const adminRoutes = require("./routes/adminRoutes");
 
-// ===== Import seeder =====
+// Import admin seeding utility
 const { seedAdmin } = require("./controllers/authController");
 
+// Initialize Express app
 const app = express();
 
-// ===== Middleware =====
-app.use(cors({ origin: "*", credentials: true }));
-app.use(express.json());
+// ===============================
+// MIDDLEWARE
+// ===============================
+app.use(cors({ origin: true, credentials: true }));
 app.use(cookieParser());
-app.use(morgan("dev")); // logs requests to console
+app.use(express.json());
 
-// ===== Routes =====
+// ===============================
+// ROUTES
+// ===============================
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
-app.use("/api/reviews", reviewRoutes);
 app.use("/api/tasks", taskRoutes);
-app.use("/api/admin", adminRoutes);
 
-// ===== Root Route =====
-app.get("/", (req, res) => res.send("API is running"));
+// Health check
+app.get("/", (req, res) => res.send("🚀 API is running"));
 
-// ===== MongoDB Connection =====
+// ===============================
+// MONGODB CONNECTION
+// ===============================
 const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/kingpraisetechz";
 
+// Optional: suppress strict query warnings
+mongoose.set("strictQuery", false);
+
 mongoose
-  .connect(mongoURI, {
-    useNewUrlParser: true,
-    useUnifiedTopology: true,
-  })
+  .connect(mongoURI)
   .then(async () => {
     console.log("✅ MongoDB connected");
 
@@ -53,11 +54,18 @@ mongoose
       console.error("❌ Admin seed failed:", err.message);
     }
 
-    // Start server
     const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => console.log(`🚀 King Praise Techz Server running on port ${PORT}`));
+    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
   })
   .catch((err) => {
     console.error("❌ MongoDB connection error:", err.message);
-    process.exit(1); // Exit app if DB connection fails
+    process.exit(1);
   });
+
+// ===============================
+// GLOBAL ERROR HANDLER
+// ===============================
+app.use((err, req, res, next) => {
+  console.error(err.stack);
+  res.status(500).json({ success: false, error: err.message || "Server Error" });
+});
