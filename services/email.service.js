@@ -265,4 +265,5 @@ module.exports = {
   sendAdminAccessEmail,
   sendPasswordResetEmail,
   sendTwoFactorSetupEmail
-};s
+};
+
