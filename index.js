@@ -10,8 +10,8 @@ const projectRoutes = require('./routes/projects');
 const taskRoutes = require('./routes/tasks');
 const userRoutes = require('./routes/users');
 const reviewRoutes = require('./routes/reviews');
-const milestoneRoutes = require('./routes/milestones');
-const adminRoutes = require('./routes/admin');
+const milestoneRoutes = require('./routes/milestone');
+const adminRoutes = require('./routes/adminRoutes');
 
 const app = express();
 
