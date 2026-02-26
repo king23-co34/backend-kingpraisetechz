@@ -8,8 +8,8 @@ const cookieParser = require("cookie-parser");
 
 // ===== Import routes =====
 const authRoutes = require("./routes/auth");
-const projectRoutes = require("./routes/project");
-const reviewRoutes = require("./routes/review");
+const projectRoutes = require("./routes/projects");
+const reviewRoutes = require("./routes/reviews");
 const taskRoutes = require("./routes/tasks");
 const adminRoutes = require("./routes/adminRoutes");
 
