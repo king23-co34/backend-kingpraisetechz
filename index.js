@@ -7,9 +7,9 @@ const morgan = require("morgan"); // Optional: logging
 const cookieParser = require("cookie-parser");
 
 // ===== Import routes =====
-const authRoutes = require("./routes/authRoutes");
-const projectRoutes = require("./routes/projectRoutes");
-const reviewRoutes = require("./routes/reviewRoutes");
+const authRoutes = require("./routes/auth");
+const projectRoutes = require("./routes/project");
+const reviewRoutes = require("./routes/review");
 const taskRoutes = require("./routes/tasks");
 const adminRoutes = require("./routes/adminRoutes");
 
@@ -35,7 +35,7 @@ app.use("/api/admin", adminRoutes);
 app.get("/", (req, res) => res.send("API is running"));
 
 // ===== MongoDB Connection =====
-const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/kingpraisetechz";
+const mongoURI = process.env.MONGO_URI
 
 mongoose
   .connect(mongoURI, {
