@@ -3,6 +3,7 @@ const router = express.Router();
 const reviewController = require('../controllers/reviewController');
 const { authenticate, requireAdmin } = require('../middleware/authMiddleware');
 
+// Public reviews (no auth needed)
 router.get('/public', reviewController.getPublicReviews);
 
 router.use(authenticate);

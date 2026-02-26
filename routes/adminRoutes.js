@@ -1,8 +1,9 @@
-const express = require("express");
+const express = require('express');
 const router = express.Router();
-const { getOverview } = require("../controllers/adminController");
-const { verifyAdmin } = require("../middleware/authMiddleware");
+const { getOverview } = require('../controllers/adminController');
+const { requireAdmin } = require('../middleware/authMiddleware');
 
-router.get("/overview", verifyAdmin, getOverview);
+// Add getOverview as the route handler after the middleware
+router.get('/overview', requireAdmin, getOverview);
 
 module.exports = router;

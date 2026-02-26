@@ -2,59 +2,33 @@ const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
 const userSchema = new mongoose.Schema({
-  email: {
-    type: String,
-    required: true,
-    unique: true,
-    lowercase: true,
-    trim: true
-  },
-  password: {
-    type: String,
-    required: true,
-    minlength: 8
-  },
+  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+  password: { type: String, required: true, minlength: 8 },
   firstName: { type: String, required: true, trim: true },
   lastName: { type: String, required: true, trim: true },
-  role: {
-    type: String,
-    enum: ['admin', 'client', 'team'],
-    required: true
-  },
-  // For team members temporarily promoted to admin
+  role: { type: String, enum: ['admin', 'client', 'team'], required: true },
   isTemporaryAdmin: { type: Boolean, default: false },
   temporaryAdminUntil: { type: Date },
   temporaryAdminGrantedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
-  
-  // 2FA
   twoFactorSecret: { type: String },
   twoFactorEnabled: { type: Boolean, default: false },
-  twoFactorVerified: { type: Boolean, default: false }, // completed setup
-  
-  // Profile
+  twoFactorVerified: { type: Boolean, default: false },
   avatar: { type: String },
   phone: { type: String },
-  company: { type: String }, // for clients
-  position: { type: String }, // for team
+  company: { type: String },
+  position: { type: String },
   bio: { type: String },
-  
-  // Status
   isActive: { type: Boolean, default: true },
   isEmailVerified: { type: Boolean, default: false },
   emailVerificationToken: { type: String },
-  
-  // Password reset
   passwordResetToken: { type: String },
   passwordResetExpires: { type: Date },
-  
-  // Notifications
   notifications: [{
     message: String,
     type: { type: String, enum: ['info', 'success', 'warning', 'error'] },
     read: { type: Boolean, default: false },
     createdAt: { type: Date, default: Date.now }
   }],
-  
   lastLogin: { type: Date }
 }, { timestamps: true });
 

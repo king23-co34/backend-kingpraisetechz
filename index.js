@@ -5,6 +5,7 @@ const helmet = require('helmet');
 const rateLimit = require('express-rate-limit');
 const mongoose = require('mongoose');
 
+// Routes
 const authRoutes = require('./routes/auth');
 const projectRoutes = require('./routes/projects');
 const taskRoutes = require('./routes/tasks');
@@ -13,32 +14,19 @@ const reviewRoutes = require('./routes/reviews');
 const milestoneRoutes = require('./routes/milestone');
 const adminRoutes = require('./routes/adminRoutes');
 
+const { seedAdmin } = require('./utils/seed');
+
 const app = express();
 
-// Security middleware
+// Middleware
 app.use(helmet());
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true
-}));
+app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true }));
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/', limiter);
-
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 10,
-  message: { error: 'Too many auth attempts, please try again later.' }
-});
-app.use('/api/auth/', authLimiter);
+// Rate limiters
+app.use('/api/', rateLimit({ windowMs: 15*60*1000, max: 100, standardHeaders: true, legacyHeaders: false }));
+app.use('/api/auth/', rateLimit({ windowMs: 15*60*1000, max: 10, message: { error: 'Too many auth attempts, try later.' } }));
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -52,7 +40,7 @@ app.use('/api/admin', adminRoutes);
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
 
-// Error handler
+// Global error handler
 app.use((err, req, res, next) => {
   console.error(err.stack);
   res.status(err.status || 500).json({
@@ -61,16 +49,13 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Database connection
+// DB Connection + Server start
 mongoose.connect(process.env.MONGODB_URI)
   .then(async () => {
     console.log('✅ MongoDB connected');
-    // Seed admin account
-    const { seedAdmin } = require('./utils/seed');
     await seedAdmin();
-    
     const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
+    app.listen(PORT, () => console.log(`🚀King Praise Techz Server running on port ${PORT}`));
   })
   .catch(err => {
     console.error('❌ MongoDB connection error:', err);
