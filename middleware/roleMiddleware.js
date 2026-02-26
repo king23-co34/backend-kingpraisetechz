@@ -1,4 +1,4 @@
-const User = require("../models/users");
+const User = require("../models/User");
 
 module.exports = (role) => {
   return async (req, res, next) => {
