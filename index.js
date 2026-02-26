@@ -35,7 +35,7 @@ app.use("/api/admin", adminRoutes);
 app.get("/", (req, res) => res.send("API is running"));
 
 // ===== MongoDB Connection =====
-const mongoURI = process.env.MONGO_URI
+const mongoURI = process.env.MONGO_URI || "mongodb+srv://pauluduogwu_db_user:6GPYfzehVR9IoHyu@cluster2.0fytaso.mongodb.net/?appName=Cluster2";
 
 mongoose
   .connect(mongoURI, {
