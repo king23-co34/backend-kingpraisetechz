@@ -1,65 +1,63 @@
-require('dotenv').config();
-const express = require('express');
-const cors = require('cors');
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-const mongoose = require('mongoose');
+// src/index.js
+require("dotenv").config(); // Load .env locally
+const express = require("express");
+const cors = require("cors");
+const mongoose = require("mongoose");
+const morgan = require("morgan"); // Optional: logging
+const cookieParser = require("cookie-parser");
 
-// Routes
-const authRoutes = require('./routes/auth');
-const projectRoutes = require('./routes/projects');
-const taskRoutes = require('./routes/tasks');
-const userRoutes = require('./routes/users');
-const reviewRoutes = require('./routes/reviews');
-const milestoneRoutes = require('./routes/milestone');
-const adminRoutes = require('./routes/adminRoutes');
+// ===== Import routes =====
+const authRoutes = require("./routes/authRoutes");
+const projectRoutes = require("./routes/projectRoutes");
+const reviewRoutes = require("./routes/reviewRoutes");
+const taskRoutes = require("./routes/tasks");
+const adminRoutes = require("./routes/adminRoutes");
 
-const { seedAdmin } = require('./utils/seed');
+// ===== Import seeder =====
+const { seedAdmin } = require("./controllers/authController");
 
 const app = express();
 
-// Middleware
-app.use(helmet());
-app.use(cors({ origin: process.env.FRONTEND_URL || 'http://localhost:3000', credentials: true }));
-app.use(express.json({ limit: '50mb' }));
-app.use(express.urlencoded({ extended: true, limit: '50mb' }));
+// ===== Middleware =====
+app.use(cors({ origin: "*", credentials: true }));
+app.use(express.json());
+app.use(cookieParser());
+app.use(morgan("dev")); // logs requests to console
 
-// Rate limiters
-app.use('/api/', rateLimit({ windowMs: 15*60*1000, max: 100, standardHeaders: true, legacyHeaders: false }));
-app.use('/api/auth/', rateLimit({ windowMs: 15*60*1000, max: 10, message: { error: 'Too many auth attempts, try later.' } }));
+// ===== Routes =====
+app.use("/api/auth", authRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/admin", adminRoutes);
 
-// Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/milestones', milestoneRoutes);
-app.use('/api/admin', adminRoutes);
+// ===== Root Route =====
+app.get("/", (req, res) => res.send("API is running"));
 
-// Health check
-app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
+// ===== MongoDB Connection =====
+const mongoURI = process.env.MONGO_URI || "mongodb://localhost:27017/kingpraisetechz";
 
-// Global error handler
-app.use((err, req, res, next) => {
-  console.error(err.stack);
-  res.status(err.status || 500).json({
-    error: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack })
-  });
-});
-
-// DB Connection + Server start
-mongoose.connect(process.env.MONGODB_URI)
-  .then(async () => {
-    console.log('✅ MongoDB connected');
-    await seedAdmin();
-    const PORT = process.env.PORT || 5000;
-    app.listen(PORT, () => console.log(`🚀King Praise Techz Server running on port ${PORT}`));
+mongoose
+  .connect(mongoURI, {
+    useNewUrlParser: true,
+    useUnifiedTopology: true,
   })
-  .catch(err => {
-    console.error('❌ MongoDB connection error:', err);
-    process.exit(1);
-  });
+  .then(async () => {
+    console.log("✅ MongoDB connected");
 
-module.exports = app;
+    // Seed admin if not exists
+    try {
+      await seedAdmin();
+      console.log("✅ Admin seed complete");
+    } catch (err) {
+      console.error("❌ Admin seed failed:", err.message);
+    }
+
+    // Start server
+    const PORT = process.env.PORT || 5000;
+    app.listen(PORT, () => console.log(`🚀 King Praise Techz Server running on port ${PORT}`));
+  })
+  .catch((err) => {
+    console.error("❌ MongoDB connection error:", err.message);
+    process.exit(1); // Exit app if DB connection fails
+  });
