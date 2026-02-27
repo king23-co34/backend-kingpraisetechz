@@ -69,20 +69,20 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 /* ─────────────────────────────────────────────────────────────
    Routes
 ───────────────────────────────────────────────────────────── */
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/client', clientRoutes);
-app.use('/api/team', teamRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/milestones', milestoneRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/auth/', authLimiter, authRoutes);
+app.use('/api/admin/', adminRoutes);
+app.use('/api/client/', clientRoutes);
+app.use('/api/team/', teamRoutes);
+app.use('/api/projects/', projectRoutes);
+app.use('/api/reviews/', reviewRoutes);
+app.use('/api/milestones/', milestoneRoutes);
+app.use('/api/tasks/', taskRoutes);
+app.use('/api/dashboard/', dashboardRoutes);
 
 /* ─────────────────────────────────────────────────────────────
    Health Check
 ───────────────────────────────────────────────────────────── */
-app.get('/api/health', (req, res) => {
+app.get('/api/health/', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Server is running',
