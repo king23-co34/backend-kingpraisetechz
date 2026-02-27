@@ -10,10 +10,10 @@ const authRoutes = require('./routes/auth.routes');
 const adminRoutes = require('./routes/admin.routes');
 const clientRoutes = require('./routes/client.routes');
 const teamRoutes = require('./routes/team.routes');
-const projectRoutes = require('./routes/project.routes');
-const reviewRoutes = require('./routes/review.routes');
+const projectRoutes = require('./routes/projects.routes');
+const reviewRoutes = require('./routes/reviews.routes');
 const milestoneRoutes = require('./routes/milestone.routes');
-const taskRoutes = require('./routes/task.routes');
+const taskRoutes = require('./routes/tasks.routes');
 const dashboardRoutes = require('./routes/dashboard.routes');
 
 const { errorHandler } = require('./middleware/error.middleware');
