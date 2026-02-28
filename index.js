@@ -1,144 +1,163 @@
-require('dotenv').config();
-const express = require('express');
-const mongoose = require('mongoose');
-const cors = require('cors');
-const helmet = require('helmet');
-const morgan = require('morgan');
-const rateLimit = require('express-rate-limit');
+// index.js
+require("dotenv").config();
+const express = require("express");
+const cors = require("cors");
+const helmet = require("helmet");
+const http = require("http");
+const { Server } = require("socket.io");
+const morgan = require("morgan");
+const hpp = require("hpp");
+const mongoSanitizer = require("mongo-sanitizer");
+const xss = require("xss");
 
-const authRoutes = require('./routes/auth.routes');
-const adminRoutes = require('./routes/admin.routes');
-const clientRoutes = require('./routes/client.routes');
-const teamRoutes = require('./routes/team.routes');
-const projectRoutes = require('./routes/projects.routes');
-const reviewRoutes = require('./routes/reviews.routes');
-const milestoneRoutes = require('./routes/milestone.routes');
-const taskRoutes = require('./routes/tasks.routes');
-const dashboardRoutes = require('./routes/dashboard.routes');
+const connectDB = require("./config/db");
+const errorHandler = require("./middleware/errorMiddleware");
+const rateLimiter = require("./middleware/rateLimiter");
 
-const { errorHandler } = require('./middleware/error.middleware');
-const { seedAdmin } = require('./utils/seed');
-const { startAdminExpiryJob } = require('./utils/cron');
+// ==========================
+// Routes
+// ==========================
+const authRoutes = require("./routes/authRoutes");
+const adminRoutes = require("./routes/adminRoutes");
+const teamRoutes = require("./routes/teamRoutes");
+const clientRoutes = require("./routes/clientRoutes");
+const publicRoutes = require("./routes/publicRoutes");
+const analyticsRoutes = require("./routes/analyticsRoutes");
+
+// ==========================
+// Connect Database
+// ==========================
+connectDB();
 
 const app = express();
 
-/* ─── Environment Validation ────────────────────────────────────── */
-if (!process.env.MONGO_URI) {
-  console.error('❌ MONGO_URI is not defined in environment variables.');
-  process.exit(1);
+// ==========================
+// Security Middleware
+// ==========================
+app.use(helmet());
+app.use(hpp());
+
+// Sanitize inputs (body, params, query)
+app.use((req, res, next) => {
+  const sanitizeObject = (obj) => {
+    if (!obj) return obj;
+    Object.keys(obj).forEach((key) => {
+      if (typeof obj[key] === "string") {
+        obj[key] = xss(obj[key]); // XSS sanitization
+      } else if (typeof obj[key] === "object") {
+        obj[key] = sanitizeObject(obj[key]);
+      }
+    });
+    return obj;
+  };
+
+  req.body = mongoSanitizer.sanitize(req.body);
+  req.params = mongoSanitizer.sanitize(req.params);
+  req.query = mongoSanitizer.sanitize(req.query);
+
+  req.body = sanitizeObject(req.body);
+  req.params = sanitizeObject(req.params);
+  req.query = sanitizeObject(req.query);
+
+  next();
+});
+
+// ==========================
+// Logging
+// ==========================
+if (process.env.NODE_ENV === "development") {
+  app.use(morgan("dev"));
+} else {
+  app.use(morgan("combined"));
 }
 
-/* ─── Security Middleware ───────────────────────────────────────── */
-app.use(helmet());
+// ==========================
+// Body Parser + Rate Limiting
+// ==========================
+app.use(express.json());
+app.use(rateLimiter);
 
-app.use(cors({
-  origin: process.env.FRONTEND_URL || 'http://localhost:3000',
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization']
-}));
+// ==========================
+// CORS (allow local + production frontend)
+// ==========================
+const allowedOrigins = [
+  "http://localhost:3000",
+  "http://localhost:3001",
+  process.env.FRONTEND_URL, // your deployed frontend
+].filter(Boolean); // remove undefined if FRONTEND_URL not set
 
-/* ─── Rate Limiting ────────────────────────────────────────────── */
-const globalLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 200,
-  message: { success: false, message: 'Too many requests, please try again later.' }
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow Postman / mobile apps (no origin)
+      if (!origin) return callback(null, true);
+
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "Authorization"],
+  })
+);
+
+// Handle preflight OPTIONS requests globally
+app.options("*", cors());
+
+// ==========================
+// HTTP Server + Socket.io
+// ==========================
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: allowedOrigins,
+    credentials: true,
+    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+  },
+});
+app.set("io", io);
+
+io.on("connection", (socket) => {
+  console.log("Client connected:", socket.id);
+  socket.on("disconnect", () => console.log("Client disconnected:", socket.id));
 });
 
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 20,
-  message: { success: false, message: 'Too many auth attempts, please try again later.' }
-});
+// ==========================
+// API Routes
+// ==========================
+app.use("/api/auth", authRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/team", teamRoutes);
+app.use("/api/client", clientRoutes);
+app.use("/api/public", publicRoutes);
+app.use("/api/analytics", analyticsRoutes);
 
-app.use(globalLimiter);
-
-/* ─── Body Parsing & Logging ───────────────────────────────────── */
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
-
-/* ─── Routes ───────────────────────────────────────────────────── */
-app.use('/api/auth', authLimiter, authRoutes);
-app.use('/api/admin', adminRoutes);
-app.use('/api/client', clientRoutes);
-app.use('/api/team', teamRoutes);
-app.use('/api/projects', projectRoutes);
-app.use('/api/reviews', reviewRoutes);
-app.use('/api/milestones', milestoneRoutes);
-app.use('/api/tasks', taskRoutes);
-app.use('/api/dashboard', dashboardRoutes);
-
-/* ─── Base Route (Optional Homepage) ───────────────────────────── */
-app.get('/', (req, res) => {
-  res.status(200).json({
+// ==========================
+// Health Check
+// ==========================
+app.get("/", (req, res) => {
+  res.json({
     success: true,
-    message: 'King Praise Techz Backend API is live 🚀',
-    documentation: '/api/health'
-  });
-});
-
-/* ─── Health Check ─────────────────────────────────────────────── */
-app.get('/api/health', (req, res) => {
-  res.status(200).json({
-    success: true,
-    message: 'Server is running',
+    message: "Backend is running!",
     timestamp: new Date().toISOString(),
-    environment: process.env.NODE_ENV || 'development'
+    environment: process.env.NODE_ENV || "development",
   });
 });
 
-/* ─── 404 Handler ──────────────────────────────────────────────── */
-app.use('*', (req, res) => {
-  res.status(404).json({ success: false, message: 'Route not found' });
-});
-
-/* ─── Global Error Handler ─────────────────────────────────────── */
+// ==========================
+// Error Handling Middleware
+// ==========================
 app.use(errorHandler);
 
-/* ─── Database Connection ─────────────────────────────────────── */
-const connectDB = async () => {
-  try {
-    await mongoose.connect(process.env.MONGO_URI);
-    console.log('✅ MongoDB connected successfully');
-
-    await seedAdmin();
-    startAdminExpiryJob();
-
-  } catch (error) {
-    console.error('❌ MongoDB connection failed:', error.message);
-    process.exit(1);
-  }
-};
-
-/* ─── Start Server ────────────────────────────────────────────── */
-const PORT = process.env.PORT;
-
-if (!PORT) {
-  console.error('❌ Render PORT environment variable is missing!');
-  process.exit(1);
-}
-
-const startServer = async () => {
-  await connectDB();
-
-  const server = app.listen(PORT, () => {
-    console.log(`🚀 Server running on port ${PORT}`);
-    console.log(`🌍 Environment: ${process.env.NODE_ENV || 'production'}`);
-    console.log(`📡 Health check: ${process.env.BASE_URL || 'https://your-backend-url.onrender.com'}/api/health`);
-  });
-
-  // Graceful Shutdown
-  process.on('SIGINT', async () => {
-    console.log('🛑 Shutting down server...');
-    await mongoose.connection.close();
-    server.close(() => {
-      console.log('💤 Server closed gracefully');
-      process.exit(0);
-    });
-  });
-};
-
-startServer();
+// ==========================
+// Start Server
+// ==========================
+const PORT = process.env.PORT || 5000;
+server.listen(PORT, () =>
+  console.log(`🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || "development"} mode`)
+);
 
 module.exports = app;
