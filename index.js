@@ -1,95 +1,54 @@
-// index.js
 require("dotenv").config();
 const express = require("express");
+const mongoose = require("mongoose");
 const cors = require("cors");
 const helmet = require("helmet");
-const http = require("http");
-const { Server } = require("socket.io");
 const morgan = require("morgan");
-const hpp = require("hpp");
-const mongoSanitizer = require("mongo-sanitizer");
-const xss = require("xss");
+const rateLimit = require("express-rate-limit");
 
-const connectDB = require("./config/db");
-const errorHandler = require("./middleware/errorMiddleware");
-const rateLimiter = require("./middleware/rateLimiter");
+// ─── Route Imports ───────────────────────────────────────────
+const authRoutes = require("./routes/auth.routes");
+const adminRoutes = require("./routes/admin.routes");
+const clientRoutes = require("./routes/client.routes");
+const teamRoutes = require("./routes/team.routes");
+const projectRoutes = require("./routes/projects.routes");
+const reviewRoutes = require("./routes/reviews.routes");
+const milestoneRoutes = require("./routes/milestone.routes");
+const taskRoutes = require("./routes/tasks.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
 
-// ==========================
-// Routes
-// ==========================
-const authRoutes = require("./routes/authRoutes");
-const adminRoutes = require("./routes/adminRoutes");
-const teamRoutes = require("./routes/teamRoutes");
-const clientRoutes = require("./routes/clientRoutes");
-const publicRoutes = require("./routes/publicRoutes");
-const analyticsRoutes = require("./routes/analyticsRoutes");
-
-// ==========================
-// Connect Database
-// ==========================
-connectDB();
+// ─── Utilities ───────────────────────────────────────────────
+const { errorHandler } = require("./middleware/error.middleware");
+const { seedAdmin } = require("./utils/seed");
+const { startAdminExpiryJob } = require("./utils/cron");
 
 const app = express();
 
-// ==========================
-// Security Middleware
-// ==========================
-app.use(helmet());
-app.use(hpp());
+// ============================================================
+// 🔐 SECURITY MIDDLEWARE
+// ============================================================
 
-// Sanitize inputs (body, params, query)
-app.use((req, res, next) => {
-  const sanitizeObject = (obj) => {
-    if (!obj) return obj;
-    Object.keys(obj).forEach((key) => {
-      if (typeof obj[key] === "string") {
-        obj[key] = xss(obj[key]); // XSS sanitization
-      } else if (typeof obj[key] === "object") {
-        obj[key] = sanitizeObject(obj[key]);
-      }
-    });
-    return obj;
-  };
+// Helmet (secure headers)
+app.use(
+  helmet({
+    crossOriginResourcePolicy: false, // important for API usage
+  })
+);
 
-  req.body = mongoSanitizer.sanitize(req.body);
-  req.params = mongoSanitizer.sanitize(req.params);
-  req.query = mongoSanitizer.sanitize(req.query);
-
-  req.body = sanitizeObject(req.body);
-  req.params = sanitizeObject(req.params);
-  req.query = sanitizeObject(req.query);
-
-  next();
-});
-
-// ==========================
-// Logging
-// ==========================
-if (process.env.NODE_ENV === "development") {
-  app.use(morgan("dev"));
-} else {
-  app.use(morgan("combined"));
-}
-
-// ==========================
-// Body Parser + Rate Limiting
-// ==========================
-app.use(express.json());
-app.use(rateLimiter);
-
-// ==========================
-// CORS (robust, preflight-safe)
-// ==========================
+// ------------------------------------------------------------
+// 🔥 PRODUCTION-SAFE CORS CONFIGURATION
+// ------------------------------------------------------------
 const allowedOrigins = [
   "http://localhost:3000",
   "http://localhost:3001",
-  process.env.FRONTEND_URL, // your deployed frontend
+  process.env.FRONTEND_URL, // e.g. https://your-frontend.vercel.app
 ].filter(Boolean);
 
+// Reliable CORS middleware
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (allowedOrigins.includes(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
+  if (!origin || allowedOrigins.includes(origin)) {
+    res.setHeader("Access-Control-Allow-Origin", origin || "*");
     res.setHeader(
       "Access-Control-Allow-Methods",
       "GET,POST,PUT,PATCH,DELETE,OPTIONS"
@@ -99,67 +58,132 @@ app.use((req, res, next) => {
       "Content-Type,Authorization"
     );
     res.setHeader("Access-Control-Allow-Credentials", "true");
+  } else {
+    // Optional: log unauthorized origin attempt
+    console.warn(`Blocked CORS request from origin: ${origin}`);
   }
 
   if (req.method === "OPTIONS") {
-    return res.sendStatus(200); // respond to preflight
+    return res.sendStatus(204); // Preflight handled
   }
+
   next();
 });
 
-// ==========================
-// HTTP Server + Socket.io
-// ==========================
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: {
-    origin: allowedOrigins,
-    credentials: true,
-    methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+// ============================================================
+// 🚦 RATE LIMITING
+// ============================================================
+const globalLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 200,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many requests, please try again later.",
   },
 });
-app.set("io", io);
 
-io.on("connection", (socket) => {
-  console.log("Client connected:", socket.id);
-  socket.on("disconnect", () => console.log("Client disconnected:", socket.id));
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    message: "Too many authentication attempts. Please try again later.",
+  },
 });
 
-// ==========================
-// API Routes
-// ==========================
-app.use("/api/auth", authRoutes);
-app.use("/api/admin", adminRoutes);
-app.use("/api/team", teamRoutes);
-app.use("/api/client", clientRoutes);
-app.use("/api/public", publicRoutes);
-app.use("/api/analytics", analyticsRoutes);
+app.use(globalLimiter);
 
-// ==========================
-// Health Check
-// ==========================
-app.get("/", (req, res) => {
-  res.json({
+// ============================================================
+// 📦 BODY PARSING & LOGGING
+// ============================================================
+app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+if (process.env.NODE_ENV !== "production") {
+  app.use(morgan("dev"));
+} else {
+  app.use(morgan("combined"));
+}
+
+// ============================================================
+// 🚀 ROUTES
+// ============================================================
+app.use("/api/auth", authLimiter, authRoutes);
+app.use("/api/admin", adminRoutes);
+app.use("/api/client", clientRoutes);
+app.use("/api/team", teamRoutes);
+app.use("/api/projects", projectRoutes);
+app.use("/api/reviews", reviewRoutes);
+app.use("/api/milestones", milestoneRoutes);
+app.use("/api/tasks", taskRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+
+// ============================================================
+// ❤️ HEALTH CHECK
+// ============================================================
+app.get("/api/health", (req, res) => {
+  res.status(200).json({
     success: true,
-    message: "Backend is running!",
+    message: "Server is running",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
   });
 });
 
-// ==========================
-// Error Handling Middleware
-// ==========================
+// ============================================================
+// ❌ 404 HANDLER
+// ============================================================
+app.use((req, res) => {
+  res.status(404).json({
+    success: false,
+    message: "Route not found",
+  });
+});
+
+// ============================================================
+// 🛑 GLOBAL ERROR HANDLER
+// ============================================================
 app.use(errorHandler);
 
-// ==========================
-// Start Server
-// ==========================
+// ============================================================
+// 🗄 DATABASE CONNECTION
+// ============================================================
+const connectDB = async () => {
+  try {
+    await mongoose.connect(
+      process.env.MONGODB_URI ||
+        "mongodb+srv://pauluduogwu_db_user:6GPYfzehVR9IoHyu@cluster2.0fytaso.mongodb.net/?appName=Cluster2",
+      { autoIndex: false }
+    );
+
+    console.log("✅ MongoDB connected successfully");
+
+    await seedAdmin();
+    startAdminExpiryJob();
+  } catch (error) {
+    console.error("❌ MongoDB connection failed:", error.message);
+    process.exit(1);
+  }
+};
+
+// ============================================================
+// ▶ START SERVER
+// ============================================================
 const PORT = process.env.PORT || 5000;
-server.listen(PORT, () =>
-  console.log(
-    `🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || "development"} mode`
-  )
-);
+
+connectDB().then(() => {
+  app.listen(PORT, () => {
+    console.log(
+      `🚀 Server running on port ${PORT} in ${process.env.NODE_ENV || "development"} mode`
+    );
+    console.log(
+      `📡 API Base URL: ${process.env.BACKEND_URL || `http://localhost:${PORT}`}/api`
+    );
+  });
+});
 
 module.exports = app;
